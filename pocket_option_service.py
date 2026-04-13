@@ -1,25 +1,23 @@
 """
-Pocket Option Data & Analysis Service v4.3 (GitHub Fix)
-=======================================================
-Uses the official 'pocketoptionapi' library installed directly from GitHub.
+Pocket Option Data & Analysis Service v4.4 (Async Fix)
+=====================================================
+Uses 'pocketoptionapi-async' library with proper AsyncPocketOptionClient.
 """
 import asyncio
 import logging
 import numpy as np
 from typing import List, Dict, Optional
 
-# Flexible import for PocketOptionAPI
+# Import from the correct module name installed from GitHub
 try:
-    from pocketoptionapi.stable_api import PocketOption
+    import pocketoptionapi_async as po
+    from pocketoptionapi_async import AsyncPocketOptionClient
 except ImportError:
-    try:
-        from pocketoptionapi import PocketOption
-    except ImportError:
-        logger = logging.getLogger(__name__)
-        logger.error("PocketOptionAPI not found. Ensure git+https://github.com/ChipaDevTeam/PocketOptionAPI.git is in requirements.txt" )
-        class PocketOption:
-            def __init__(self, *args, **kwargs):
-                raise ImportError("PocketOptionAPI library is missing.")
+    # Fallback if the name is different or not installed
+    po = None
+    class AsyncPocketOptionClient:
+        def __init__(self, *args, **kwargs):
+            raise ImportError("pocketoptionapi-async not found. Please check requirements.txt")
 
 logger = logging.getLogger(__name__)
 
@@ -109,15 +107,21 @@ class PocketOptionAnalyzer:
         self.adx_p, self.adx_min = ADX_PERIOD, ADX_MIN_THRESHOLD
 
     def analyze(self, candles: List[Dict]) -> Optional[Dict]:
-        if len(candles) < 50: return None
-        closes, highs, lows = np.array([c['close'] for c in candles]), np.array([c['high'] for c in candles]), np.array([c['low'] for c in candles])
+        if not candles or len(candles) < 50: return None
+        closes = np.array([c.get('close', c.get('c')) for c in candles if c], dtype=float)
+        highs = np.array([c.get('high', c.get('h')) for c in candles if c], dtype=float)
+        lows = np.array([c.get('low', c.get('l')) for c in candles if c], dtype=float)
+        
         ta = TechnicalAnalysis()
         ema_f, ema_s, rsi = ta.ema(closes, self.ema_fast_p), ta.ema(closes, self.ema_slow_p), ta.rsi(closes, self.rsi_p)
         trend, _ = ta.supertrend(highs, lows, closes, self.st_p, self.st_m)
         adx = ta.adx(highs, lows, closes, self.adx_p)
+        
         if any(len(x) == 0 for x in [ema_f, ema_s, rsi, trend, adx]): return None
+        
         curr_c, curr_ef, curr_es, curr_r, curr_t, curr_a = closes[-1], ema_f[-1], ema_s[-1], rsi[-1], trend[-1], adx[-1]
         inds = {"ema_fast": round(curr_ef, 5), "ema_slow": round(curr_es, 5), "rsi": round(curr_r, 2), "supertrend": "UP" if curr_t == 1 else "DOWN", "adx": round(curr_a, 2)}
+        
         if curr_c > curr_ef > curr_es and curr_r >= self.rsi_call_min and curr_t == 1 and curr_a >= self.adx_min:
             return {"direction": "CALL", "indicators": inds}
         if curr_c < curr_ef < curr_es and curr_r <= self.rsi_put_max and curr_t == -1 and curr_a >= self.adx_min:
@@ -127,15 +131,16 @@ class PocketOptionAnalyzer:
 class PocketOptionDataService:
     def __init__(self, ssid: str, is_demo: bool = True):
         self.ssid, self.is_demo = ssid, is_demo
-        self.api = PocketOption()
+        self.client = AsyncPocketOptionClient(ssid=ssid)
         self._connected = False
 
     async def connect(self):
         if not self._connected:
             try:
-                success = await asyncio.to_thread(self.api.connect, self.ssid, self.is_demo)
-                self._connected = success
-                return success
+                if not self.client.is_connected():
+                    await self.client.connect()
+                self._connected = self.client.is_connected()
+                return self._connected
             except Exception as e:
                 logger.error(f"Connection error: {e}")
                 return False
@@ -144,10 +149,12 @@ class PocketOptionDataService:
     async def get_candles(self, asset: str, timeframe_seconds: int = 900, count: int = 100):
         if not await self.connect(): return []
         try:
-            candles = await asyncio.to_thread(self.api.get_candles, asset, timeframe_seconds, count)
+            candles = await self.client.get_candles(asset, timeframe_seconds, count)
+            if hasattr(candles, 'to_dict'): # if it's a dataframe
+                return candles.to_dict('records')
             return candles
         except Exception as e:
-            logger.error(f"Error fetching candles: {e}")
+            logger.error(f"Error fetching candles for {asset}: {e}")
             return []
 
 _data_service = None
