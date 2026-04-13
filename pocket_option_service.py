@@ -1,24 +1,25 @@
 """
-Pocket Option Data & Analysis Service v4.2 (Final Fix)
-=====================================================
-Uses the official 'pocketoptionapi' library with thread-safe async wrapping.
+Pocket Option Data & Analysis Service v4.3 (GitHub Fix)
+=======================================================
+Uses the official 'pocketoptionapi' library installed directly from GitHub.
 """
 import asyncio
 import logging
 import numpy as np
 from typing import List, Dict, Optional
 
-# Try multiple import styles to ensure compatibility
+# Flexible import for PocketOptionAPI
 try:
     from pocketoptionapi.stable_api import PocketOption
 except ImportError:
     try:
         from pocketoptionapi import PocketOption
     except ImportError:
-        # Fallback for different versions
+        logger = logging.getLogger(__name__)
+        logger.error("PocketOptionAPI not found. Ensure git+https://github.com/ChipaDevTeam/PocketOptionAPI.git is in requirements.txt" )
         class PocketOption:
             def __init__(self, *args, **kwargs):
-                raise ImportError("pocketoptionapi not found. Please check requirements.txt")
+                raise ImportError("PocketOptionAPI library is missing.")
 
 logger = logging.getLogger(__name__)
 
