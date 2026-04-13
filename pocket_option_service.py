@@ -1,11 +1,12 @@
 """
-Pocket Option Data & Analysis Service v4.4 (Async Fix)
-=====================================================
-Uses 'pocketoptionapi-async' library with proper AsyncPocketOptionClient.
+Pocket Option Data & Analysis Service v4.5 (SessionToken Fix)
+============================================================
+Supports both 'session' and 'sessionToken' formats for Pocket Option authentication.
 """
 import asyncio
 import logging
 import numpy as np
+import json
 from typing import List, Dict, Optional
 
 # Import from the correct module name installed from GitHub
@@ -13,7 +14,6 @@ try:
     import pocketoptionapi_async as po
     from pocketoptionapi_async import AsyncPocketOptionClient
 except ImportError:
-    # Fallback if the name is different or not installed
     po = None
     class AsyncPocketOptionClient:
         def __init__(self, *args, **kwargs):
@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 
 class TechnicalAnalysis:
     """Pure NumPy implementation of technical indicators."""
-    
     @staticmethod
     def ema(data: np.ndarray, period: int) -> np.ndarray:
         if len(data) < period: return np.array([])
@@ -111,17 +110,13 @@ class PocketOptionAnalyzer:
         closes = np.array([c.get('close', c.get('c')) for c in candles if c], dtype=float)
         highs = np.array([c.get('high', c.get('h')) for c in candles if c], dtype=float)
         lows = np.array([c.get('low', c.get('l')) for c in candles if c], dtype=float)
-        
         ta = TechnicalAnalysis()
         ema_f, ema_s, rsi = ta.ema(closes, self.ema_fast_p), ta.ema(closes, self.ema_slow_p), ta.rsi(closes, self.rsi_p)
         trend, _ = ta.supertrend(highs, lows, closes, self.st_p, self.st_m)
         adx = ta.adx(highs, lows, closes, self.adx_p)
-        
         if any(len(x) == 0 for x in [ema_f, ema_s, rsi, trend, adx]): return None
-        
         curr_c, curr_ef, curr_es, curr_r, curr_t, curr_a = closes[-1], ema_f[-1], ema_s[-1], rsi[-1], trend[-1], adx[-1]
         inds = {"ema_fast": round(curr_ef, 5), "ema_slow": round(curr_es, 5), "rsi": round(curr_r, 2), "supertrend": "UP" if curr_t == 1 else "DOWN", "adx": round(curr_a, 2)}
-        
         if curr_c > curr_ef > curr_es and curr_r >= self.rsi_call_min and curr_t == 1 and curr_a >= self.adx_min:
             return {"direction": "CALL", "indicators": inds}
         if curr_c < curr_ef < curr_es and curr_r <= self.rsi_put_max and curr_t == -1 and curr_a >= self.adx_min:
@@ -131,7 +126,18 @@ class PocketOptionAnalyzer:
 class PocketOptionDataService:
     def __init__(self, ssid: str, is_demo: bool = True):
         self.ssid, self.is_demo = ssid, is_demo
-        self.client = AsyncPocketOptionClient(ssid=ssid)
+        # Handle new sessionToken format
+        processed_ssid = ssid
+        if 'sessionToken' in ssid and 'session' not in ssid:
+            try:
+                # Convert sessionToken to session for library compatibility if needed
+                if ssid.startswith('42['):
+                    data = json.loads(ssid[2:])
+                    if 'sessionToken' in data[1]:
+                        data[1]['session'] = data[1].pop('sessionToken')
+                        processed_ssid = f'42{json.dumps(data)}'
+            except: pass
+        self.client = AsyncPocketOptionClient(ssid=processed_ssid)
         self._connected = False
 
     async def connect(self):
@@ -150,8 +156,7 @@ class PocketOptionDataService:
         if not await self.connect(): return []
         try:
             candles = await self.client.get_candles(asset, timeframe_seconds, count)
-            if hasattr(candles, 'to_dict'): # if it's a dataframe
-                return candles.to_dict('records')
+            if hasattr(candles, 'to_dict'): return candles.to_dict('records')
             return candles
         except Exception as e:
             logger.error(f"Error fetching candles for {asset}: {e}")
@@ -159,14 +164,11 @@ class PocketOptionDataService:
 
 _data_service = None
 _analyzer = PocketOptionAnalyzer()
-
 def init_data_service(ssid: str, is_demo: bool = True):
     global _data_service
     _data_service = PocketOptionDataService(ssid, is_demo)
-
 def get_data_service(): return _data_service
 def get_analyzer(): return _analyzer
-
 ASSET_MAP = {"EURUSD": ["EURUSD_otc"], "USDGBP": ["USDGBP_otc"], "AUDCAD": ["AUDCAD_otc"]}
 def get_asset_names(pair: str) -> List[str]:
     pair = pair.upper().replace("/", "")
