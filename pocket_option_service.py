@@ -1,12 +1,13 @@
 """
-Pocket Option Data & Analysis Service v4.5 (SessionToken Fix)
+Pocket Option Data & Analysis Service v4.6 (SSID Parser Fix)
 ============================================================
-Supports both 'session' and 'sessionToken' formats for Pocket Option authentication.
+Forcefully converts sessionToken to session to satisfy library validation.
 """
 import asyncio
 import logging
 import numpy as np
 import json
+import re
 from typing import List, Dict, Optional
 
 # Import from the correct module name installed from GitHub
@@ -125,18 +126,19 @@ class PocketOptionAnalyzer:
 
 class PocketOptionDataService:
     def __init__(self, ssid: str, is_demo: bool = True):
-        self.ssid, self.is_demo = ssid, is_demo
-        # Handle new sessionToken format
+        self.ssid = ssid
+        self.is_demo = is_demo
+        
+        # CRITICAL FIX: The library strictly requires 'session' field.
+        # We will manually rewrite the SSID string to replace 'sessionToken' with 'session'
         processed_ssid = ssid
-        if 'sessionToken' in ssid and 'session' not in ssid:
-            try:
-                # Convert sessionToken to session for library compatibility if needed
-                if ssid.startswith('42['):
-                    data = json.loads(ssid[2:])
-                    if 'sessionToken' in data[1]:
-                        data[1]['session'] = data[1].pop('sessionToken')
-                        processed_ssid = f'42{json.dumps(data)}'
-            except: pass
+        if 'sessionToken' in ssid:
+            processed_ssid = ssid.replace('sessionToken', 'session')
+        
+        # Ensure it starts with 42["auth",
+        if not processed_ssid.startswith('42["auth",'):
+            logger.warning("SSID format might be incorrect. Expected 42[\"auth\",...]")
+
         self.client = AsyncPocketOptionClient(ssid=processed_ssid)
         self._connected = False
 
