@@ -1,0 +1,27 @@
+# =====================================================
+# Aboud Trading Bot - Dependencies (Render Optimized)
+# =====================================================
+
+# Web Framework
+flask==3.1.0
+gunicorn==23.0.0
+
+# Telegram Bot
+python-telegram-bot==21.9
+
+# HTTP Client (async)
+aiohttp==3.11.11
+
+# Scheduler
+APScheduler==3.11.0
+
+# Database (PostgreSQL)
+psycopg2-binary==2.9.10
+
+# Utilities
+python-dotenv==1.0.1
+
+# Pocket Option & Analysis
+# Using official pocketoptionapi and numpy for technical analysis
+pocketoptionapi==2.0.1
+numpy>=1.26.0
