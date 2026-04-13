@@ -1,13 +1,12 @@
 """
-Pocket Option Data & Analysis Service v4.6 (SSID Parser Fix)
-============================================================
-Forcefully converts sessionToken to session to satisfy library validation.
+Pocket Option Data & Analysis Service v4.7 (Final Stability Fix)
+===============================================================
+Fixed 'bool object is not callable' error by properly handling connect property.
 """
 import asyncio
 import logging
 import numpy as np
 import json
-import re
 from typing import List, Dict, Optional
 
 # Import from the correct module name installed from GitHub
@@ -128,25 +127,18 @@ class PocketOptionDataService:
     def __init__(self, ssid: str, is_demo: bool = True):
         self.ssid = ssid
         self.is_demo = is_demo
-        
-        # CRITICAL FIX: The library strictly requires 'session' field.
-        # We will manually rewrite the SSID string to replace 'sessionToken' with 'session'
-        processed_ssid = ssid
-        if 'sessionToken' in ssid:
-            processed_ssid = ssid.replace('sessionToken', 'session')
-        
-        # Ensure it starts with 42["auth",
-        if not processed_ssid.startswith('42["auth",'):
-            logger.warning("SSID format might be incorrect. Expected 42[\"auth\",...]")
-
+        processed_ssid = ssid.replace('sessionToken', 'session') if 'sessionToken' in ssid else ssid
         self.client = AsyncPocketOptionClient(ssid=processed_ssid)
         self._connected = False
 
     async def connect(self):
         if not self._connected:
             try:
+                # FIX: In this library version, connect is a property or handled automatically
+                # We check is_connected() and only call connect if it's a method
                 if not self.client.is_connected():
-                    await self.client.connect()
+                    if callable(getattr(self.client, 'connect', None)):
+                        await self.client.connect()
                 self._connected = self.client.is_connected()
                 return self._connected
             except Exception as e:
